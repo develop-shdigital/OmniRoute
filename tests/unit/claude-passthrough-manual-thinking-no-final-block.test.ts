@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 const { buildClaudePassthroughBody } =
   await import("@omniroute/open-sse/handlers/chatCore/claudePassthroughBody.ts");
-const { isAnthropicThinkingSignatureError } =
+const { isAnthropicThinkingSignatureError, isClaudeCodeSemanticPassthroughRequest } =
   await import("@omniroute/open-sse/handlers/chatCore/passthroughHelpers.ts");
 const { DEFAULT_THINKING_CLAUDE_SIGNATURE } =
   await import("@omniroute/open-sse/config/defaultThinkingSignature.ts");
@@ -57,6 +57,43 @@ test("passthrough: manual thinking is disabled when the unsigned block was dropp
 test("passthrough: adaptive thinking stays on without a block", () => {
   const out = build(bodyWith({ type: "adaptive" }));
   assert.deepEqual(out.thinking, { type: "adaptive" });
+});
+
+test("passthrough: anthropic API-key provider gets the same first-party passthrough hygiene as claude", () => {
+  assert.equal(
+    isClaudeCodeSemanticPassthroughRequest({
+      provider: "anthropic",
+      sourceFormat: "claude",
+      targetFormat: "claude",
+      userAgent: "claude-cli/2.1.137",
+    }),
+    true
+  );
+
+  const out = buildClaudePassthroughBody({
+    body: bodyWith({ type: "enabled", budget_tokens: 4096 }),
+    provider: "anthropic",
+    clientHeaders: null,
+    isClaudeCodeSemanticPassthrough: false,
+    effectiveModel: "claude-opus-4-8",
+    targetFormat: "claude",
+    preserveCacheControl: true,
+    normalizeClaudeUpstreamMessages: () => {},
+    applyReasoningRuleDirective: (b) => b,
+    log: null,
+  }) as {
+    thinking?: unknown;
+    messages: Array<{
+      role: string;
+      content: Array<{ type: string; cache_control?: unknown }>;
+    }>;
+  };
+  assert.deepEqual(
+    out.messages[1].content.map((b) => b.type),
+    ["tool_use"]
+  );
+  assert.equal(out.thinking, undefined);
+  assert.deepEqual(out.messages[2].content[0].cache_control, { type: "ephemeral" });
 });
 
 test("signature 400 recovery covers every signature-validating Anthropic upstream", () => {
