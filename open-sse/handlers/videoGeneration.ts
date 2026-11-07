@@ -30,9 +30,11 @@ import {
 import { abortedVideoResult, POLL_ABORTED, pollJsonAfter } from "./videoGeneration/abort.ts";
 import { sleep } from "../utils/sleep.ts";
 import {
+  downloadResultVideo,
   extractRunwayFailureMessage,
   normalizeRunwayVideoResult,
   resolvePositiveInteger,
+  resultVideoErrorText,
   resolveRunwayDuration,
   resolveRunwayPromptImage,
   resolveRunwayRatio,
@@ -1057,7 +1059,7 @@ async function handleRunwayVideoGeneration({
       const status = String(task?.status || "").toUpperCase();
 
       if (status === "SUCCEEDED") {
-        const videos = await normalizeRunwayVideoResult(task, body);
+        const videos = await normalizeRunwayVideoResult(task, body, signal);
         saveCallLog({
           method: "POST",
           path: "/v1/videos/generations",
@@ -1178,8 +1180,13 @@ async function handleHaiperVideoGeneration({
     if (status.status === "completed" || status.status === "succeeded") {
       const videoUrl = status.creation_url || status.output?.video_url;
       if (videoUrl) {
-        const videoRes = await fetch(videoUrl);
-        const buf = await videoRes.arrayBuffer();
+        let buf: Buffer;
+        try {
+          buf = await downloadResultVideo(videoUrl, signal);
+        } catch (err) {
+          if (signal?.aborted) return abortedVideoResult();
+          return { success: false, status: 502, error: resultVideoErrorText(err) };
+        }
         saveCallLog({
           method: "POST",
           path: "/v1/videos/generations",
@@ -1192,7 +1199,7 @@ async function handleHaiperVideoGeneration({
           success: true,
           data: {
             created: Math.floor(Date.now() / 1000),
-            data: [{ b64_json: Buffer.from(buf).toString("base64"), format: "mp4" }],
+            data: [{ b64_json: buf.toString("base64"), format: "mp4" }],
           },
         };
       }
