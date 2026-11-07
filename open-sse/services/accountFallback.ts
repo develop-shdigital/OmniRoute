@@ -473,8 +473,20 @@ export const PARAM_VALIDATION_PATTERNS = [
 /**
  * T06: Returns true if response body indicates the account is permanently deactivated.
  */
+export function isGoogleCloudCodeTosViolation(lowerText: string): boolean {
+  return (
+    lowerText.includes("tos_violation") &&
+    (lowerText.includes("cloudcode") ||
+      lowerText.includes("disabled in this account") ||
+      lowerText.includes("terms of service"))
+  );
+}
+
 export function isAccountDeactivated(errorText: string): boolean {
   const lower = String(errorText || "").toLowerCase();
+  if (isGoogleCloudCodeTosViolation(lower)) {
+    return true;
+  }
   return getMergedBannedSignals().some((sig) => lower.includes(sig));
 }
 
